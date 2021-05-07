@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector
+  namespace: openshift-logging
+data:
+  fluent-bit.conf: |+
+    [SERVICE]
+        Log_Level debug
+        HTTP_Server  On
+        HTTP_Listen  ${POD_IP}
+        HTTP_PORT    24231
+        Parsers_file /opt/app-root/src/config/parsers.conf
+        Name tail
+    [INPUT]
+        Name tail
+        Path /var/log/containers/*_openshift*_*.log, /var/log/containers/*_kube*_*.log, /var/log/containers/*_default_*.log
+        Path_Key filename
+        Parser containerd
+        Exclude_Path /var/log/containers/*_openshift-logging*_*.log
+        Tag kube.*
+        DB /var/lib/ocp-collector/infra-containers.pos.db
+        Refresh_Interval 5
+    [FILTER]
+        Name    lua
+        Match   kube.*
+        script  /opt/app-root/src/config/concat-crio.lua
+        call reassemble_cri_logs
+    [FILTER]
+        Match kubernetes.*
+        NAME kubernetes
+        Annotations Off
+        Kube_Tag_Prefix kube.var.log.containers.
+    [FILTER]
+        Name    lua
+        Match   kube.*
+        script  /opt/app-root/src/config/transform.lua
+        call transform
+    [FILTER]
+        Match kube.*
+        NAME  modify
+        Rename time @timestamp
+        Remove date
+        Remove logtag
+        Remove stream
+        Remove filename
+    [OUTPUT]
+        Match *
+        Name stdout
+        Format json_stream
+  parsers.conf: |+
+    [PARSER]
+        Name containerd
+        Format regex
+        Regex /^(?<time>.+) (?<stream>\w+) (?<logtag>[FP]) (?<message>.+)$/
+        Time_Key time
+        Time_Keep on
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+    [PARSER]
+        Name        json
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+  transform.lua: |+
+    function transform(tag, timestamp, record)
+      ce = {}
+      ce['logtag'] = record.logtag
+      ce['stream'] = record.stream
+      ce['filename'] = record.filename
+      record['container_engine'] = ce
+      openshift = {}
+      openshift['labels'] = {}
+      record['openshift'] = openshift
+      return 1, timestamp, record
+    end
+  concat-crio.lua: |+
+    local reassemble_state = {}
+    function reassemble_cri_logs(tag, timestamp, record)
+      -- IMPORTANT: reassemble_key must be unique for each parser stream
+      -- otherwise entries from different sources will get mixed up.
+      -- Either make sure that your parser tags satisfy this or construct
+      -- reassemble_key some other way
+      local reassemble_key = tag
+      -- if partial line, accumulate
+      if record.logtag == 'P' then
+         if reassemble_state[reassemble_key] == nil then
+           reassemble_state[reassemble_key] = ""
+         end
+         if record.message ~= nil then
+           reassemble_state[reassemble_key] = reassemble_state[reassemble_key] .. record.message
+         end
+         return -1, 0, 0
+      end
+      modCode = 2
+      -- otherwise it's a full line, concatenate with accumulated partial lines if any
+      if reassemble_state[reassemble_key] == nil then
+         modCode = 0
+         reassemble_state[reassemble_key] = ""
+      end
+      record.message = reassemble_state[reassemble_key] .. (record.message or "")
+      reassemble_state[reassemble_key] = nil
+      return modCode, timestamp, record
+    end
