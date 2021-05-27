@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector
+  namespace: openshift-logging
+data:
+  vector.toml: |+
+    [sources.kube]
+      type = "kubernetes_logs"
+      auto_partial_merge = true
+      exclude_paths_glob_patterns = ["**/*_openshift-logging*_*.log"]
+    [sinks.console]
+      type="console"
+      inputs = ["kube"]
+      encoding.codec = "json"
