@@ -66,7 +66,7 @@ data:
     [FILTER]
         Match cont.app.*
         NAME  rewrite_tag
-        RULE  * .* -app false
+        RULE  $message .* -app false
     [FILTER]
         Match cont.infra.*
         NAME  rewrite_tag
@@ -79,23 +79,19 @@ data:
         Match -app
         NAME  rewrite_tag
         RULE  $kubernetes['namespace_name'] ^my-devel$ special-to-special false
-        RULE  * .* -app-all false
+        RULE  $message .* -app-all false
     [FILTER]
         Match -app-all
         NAME  rewrite_tag
-        RULE  * .* everythingelse false
+        RULE  $message .* everythingelse false
     #RECORD TRANSFORM to ADD CLUSTER LABEL
     [FILTER]
         Match special-to-special
         NAME  rewrite_tag
-        RULE  * .* special-output false
+        RULE  $message .* special-output false
     [FILTER]
-        Match special-to-special
         NAME  rewrite_tag
-        RULE  * .* special-output false
-    [FILTER]
         Match everythingelse
-        NAME  rewrite_tag
         RULE  $message .* leftover false
     [OUTPUT]
         Match leftover
@@ -170,11 +166,6 @@ data:
         
         record["pipeline_metadata"] = pipeline
         
-        -- REMOVE extraneous fields
-        record['docker_id'] = nil
-        record['container_image'] = nil
-        record['container_hash'] = nil
-        record['container_name'] = nil
 
         level = extract_log_level(record["message"])
         if level ~= nil then
