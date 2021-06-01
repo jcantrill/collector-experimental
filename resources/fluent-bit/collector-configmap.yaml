@@ -18,7 +18,7 @@ data:
         Path_Key filename
         Parser containerd
         Exclude_Path /var/log/containers/*_openshift*_*.log, /var/log/containers/*_kube*_*.log, /var/log/containers/*_default_*.log
-        Tag cont.app.*
+        Tag cont.*
         DB /var/lib/ocp-collector/cont-app.pos.db
     [INPUT]
         Name tail
@@ -26,7 +26,7 @@ data:
         Path_Key filename
         Parser containerd
         Exclude_Path /var/log/containers/*_openshift-logging*_*.log
-        Tag cont.infra.*
+        Tag cont.*
         DB /var/lib/ocp-collector/cont-infra.pos.db
         Refresh_Interval 5
         Ignore_Older 2m
@@ -41,15 +41,10 @@ data:
         Match cont.*
         Record hostname ${HOSTNAME}
     [FILTER]
-        Match cont.infra.*
+        Match cont.*
         NAME kubernetes
         Annotations Off
-        Kube_Tag_Prefix cont.infra.var.log.containers.
-    [FILTER]
-        Match cont.app.*
-        NAME kubernetes
-        Annotations Off
-        Kube_Tag_Prefix cont.app.var.log.containers.
+        Kube_Tag_Prefix cont.var.log.containers.
     [FILTER]
         Name    lua
         Match   cont.*
@@ -64,41 +59,24 @@ data:
         Remove stream
         Remove filename
     [FILTER]
-        Match cont.app.*
         NAME  rewrite_tag
-        RULE  $message .* -app false
+        Match cont.*
+        RULE  $kubernetes['namespace_name'] ^(kube(-.*)?|openshift(-.*)?|default)$ -infra false
+        RULE  $kubernetes['namespace_name'] .* -app.$kubernetes['namespace_name'].$kubernetes['pod_name'] false
     [FILTER]
-        Match cont.infra.*
-        NAME  rewrite_tag
-        RULE  $message .* -infra false
+        Name record_modifier
+        Match_Regex ^(-infra|-app\..*)$
+        Record output leftover
     [FILTER]
-        Match -infra
-        NAME  rewrite_tag
-        RULE  $message .* everythingelse false
-    [FILTER]
-        Match -app
-        NAME  rewrite_tag
-        RULE  $kubernetes['namespace_name'] ^my-devel$ special-to-special false
-        RULE  $message .* -app-all false
-    [FILTER]
-        Match -app-all
-        NAME  rewrite_tag
-        RULE  $message .* everythingelse false
-    #RECORD TRANSFORM to ADD CLUSTER LABEL
-    [FILTER]
-        Match special-to-special
-        NAME  rewrite_tag
-        RULE  $message .* special-output false
-    [FILTER]
-        NAME  rewrite_tag
-        Match everythingelse
-        RULE  $message .* leftover false
-    [OUTPUT]
-        Match leftover
+        Name record_modifier
+        Match_Regex ^(-infra|-app\.my-devel\..*)$
+        Record output special-output
+    [OUTPUT]  #leftover
+        Match_Regex ^(-infra|-app\..*)$
         Name stdout
         Format json_line
-    [OUTPUT]
-        Match special-output
+    [OUTPUT]  #special-output
+        Match_Regex ^(-infra|-app\.my-devel\..*)$
         Name stdout
         Format json_line
     [OUTPUT]
