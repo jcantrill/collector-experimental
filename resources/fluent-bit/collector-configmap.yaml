@@ -6,7 +6,7 @@ metadata:
 data:
   fluent-bit.conf: |+
     [SERVICE]
-        Log_Level debug
+        Log_Level info
         HTTP_Server  On
         HTTP_Listen  ${POD_IP}
         HTTP_PORT    24231
@@ -14,40 +14,105 @@ data:
         Name tail
     [INPUT]
         Name tail
+        Path /var/log/containers/*.log
+        Path_Key filename
+        Parser containerd
+        Exclude_Path /var/log/containers/*_openshift*_*.log, /var/log/containers/*_kube*_*.log, /var/log/containers/*_default_*.log
+        Tag cont.app.*
+        DB /var/lib/ocp-collector/cont-app.pos.db
+    [INPUT]
+        Name tail
         Path /var/log/containers/*_openshift*_*.log, /var/log/containers/*_kube*_*.log, /var/log/containers/*_default_*.log
         Path_Key filename
         Parser containerd
         Exclude_Path /var/log/containers/*_openshift-logging*_*.log
-        Tag kube.*
-        DB /var/lib/ocp-collector/infra-containers.pos.db
+        Tag cont.infra.*
+        DB /var/lib/ocp-collector/cont-infra.pos.db
         Refresh_Interval 5
+        Ignore_Older 2m
     [FILTER]
         Name    lua
-        Match   kube.*
+        Match   cont.*
         script  /opt/app-root/src/config/concat-crio.lua
         call reassemble_cri_logs
+
     [FILTER]
-        Match kubernetes.*
+        Name record_modifier
+        Match cont.*
+        Record hostname ${HOSTNAME}
+    [FILTER]
+        Match cont.infra.*
         NAME kubernetes
         Annotations Off
-        Kube_Tag_Prefix kube.var.log.containers.
+        Kube_Tag_Prefix cont.infra.var.log.containers.
+    [FILTER]
+        Match cont.app.*
+        NAME kubernetes
+        Annotations Off
+        Kube_Tag_Prefix cont.app.var.log.containers.
     [FILTER]
         Name    lua
-        Match   kube.*
+        Match   cont.*
         script  /opt/app-root/src/config/transform.lua
-        call transform
+        call    transform
     [FILTER]
-        Match kube.*
+        Match cont.*
         NAME  modify
         Rename time @timestamp
         Remove date
         Remove logtag
         Remove stream
         Remove filename
+    [FILTER]
+        Match cont.app.*
+        NAME  rewrite_tag
+        RULE  * .* -app false
+    [FILTER]
+        Match cont.infra.*
+        NAME  rewrite_tag
+        RULE  $message .* -infra false
+    [FILTER]
+        Match -infra
+        NAME  rewrite_tag
+        RULE  $message .* everythingelse false
+    [FILTER]
+        Match -app
+        NAME  rewrite_tag
+        RULE  $kubernetes['namespace_name'] ^my-devel$ special-to-special false
+        RULE  * .* -app-all false
+    [FILTER]
+        Match -app-all
+        NAME  rewrite_tag
+        RULE  * .* everythingelse false
+    #RECORD TRANSFORM to ADD CLUSTER LABEL
+    [FILTER]
+        Match special-to-special
+        NAME  rewrite_tag
+        RULE  * .* special-output false
+    [FILTER]
+        Match special-to-special
+        NAME  rewrite_tag
+        RULE  * .* special-output false
+    [FILTER]
+        Match everythingelse
+        NAME  rewrite_tag
+        RULE  $message .* leftover false
     [OUTPUT]
-        Match *
+        Match leftover
         Name stdout
-        Format json_stream
+        Format json_line
+    [OUTPUT]
+        Match special-output
+        Name stdout
+        Format json_line
+    [OUTPUT]
+        Match dump
+        Name stdout
+        Format msgpack
+    #[OUTPUT]
+    #    Match *
+    #    Name stdout
+    #    Format msgpack
   parsers.conf: |+
     [PARSER]
         Name containerd
@@ -56,23 +121,67 @@ data:
         Time_Key time
         Time_Keep on
         Time_Format %Y-%m-%dT%H:%M:%S.%L
-    [PARSER]
-        Name        json
-        Format      json
-        Time_Key    time
-        Time_Format %Y-%m-%dT%H:%M:%S.%L
   transform.lua: |+
-    function transform(tag, timestamp, record)
-      ce = {}
-      ce['logtag'] = record.logtag
-      ce['stream'] = record.stream
-      ce['filename'] = record.filename
-      record['container_engine'] = ce
-      openshift = {}
-      openshift['labels'] = {}
-      record['openshift'] = openshift
-      return 1, timestamp, record
-    end
+     e_checks = {}
+     e_checks["debug"] = {"(%Debug)","%(DEBUG)","(%[D]%d)","(%level=debug)","(%Value:debug)","(%\"level\":\"debug\")"}
+     e_checks["warn"]  = {"(%Warn)","%(WARN)","(%[W]%d)","(%level=warn)","(%Value:warn)","(%\"level\":\"warn\")"}
+     e_checks["info"]  = {"(%Info)" ,"(%INFO)" ,"(%[I]%d)","(%level=info)","(%Value:info)" ,"(%\"level\":\"info\")"}
+     e_checks["error"] = {"(%Error)","(%ERROR)","(%[E]%d)","(%level=error)","(%Value:error)","(%\"level\":\"error\")"}
+
+     function extract_log_level(message)
+
+        match = nil
+        for j,level in ipairs({"debug","warn","info","error"}) do
+            for i,check in ipairs(e_checks[level]) do
+              match = string.match(message,check)
+              if match ~= nil then
+                  return level
+              end
+            end
+        end
+        return nil
+     end
+
+     function transform(tag, timestamp, record)
+        ce = {}
+        ce['logtag'] = record.logtag
+        ce['stream'] = record.stream
+        ce['filename'] = record.filename
+        ce['container_id'] = record.docker_id
+        ce['container_image'] = record.container_image
+        record["docker"] = ce
+
+        openshift = {}
+        openshift['labels'] = {}
+        record['openshift'] = openshift
+
+        pipeline = {}
+        collector = {}
+        collector["name"] = "fluent-bit"
+        collector["version"] = "someversion"
+        collector["ipaddr4"] = os.getenv("NODE_IPV4")
+        collector["received_at"] = os.date("%Y-%m-%dT%H:%M:%S")
+        collector["inputname"] = "kubernetes"
+        
+        kube = record["kubernetes"]
+        kube["container_name"] = record["container_name"]
+    
+        pipeline["collector"] = collector
+        
+        record["pipeline_metadata"] = pipeline
+        
+        -- REMOVE extraneous fields
+        record['docker_id'] = nil
+        record['container_image'] = nil
+        record['container_hash'] = nil
+        record['container_name'] = nil
+
+        level = extract_log_level(record["message"])
+        if level ~= nil then
+          record["level"] = level
+        end
+        return 1, timestamp, record
+     end
   concat-crio.lua: |+
     local reassemble_state = {}
     function reassemble_cri_logs(tag, timestamp, record)
@@ -80,7 +189,7 @@ data:
       -- otherwise entries from different sources will get mixed up.
       -- Either make sure that your parser tags satisfy this or construct
       -- reassemble_key some other way
-      local reassemble_key = tag
+      local reassemble_key = record.stream .. " " .. tag
       -- if partial line, accumulate
       if record.logtag == 'P' then
          if reassemble_state[reassemble_key] == nil then
