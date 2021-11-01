@@ -1,0 +1,36 @@
+
+
+*******************************************************************************
+Mon Nov  1 14:23:03 2021
+
+
+FIT:    data read from 'latency.data' using 1:2
+        format = x:z
+        #datapoints = 100873
+        residuals are weighted equally (unit weight)
+
+function used for fitting: f(x)
+	f(x)=m*x+b
+fitted parameters initialized with current variable values
+
+iter      chisq       delta/lim  lambda   m             b            
+   0 3.4211165645e+14   0.00e+00  4.12e+04    1.000000e+00   1.000000e+00
+   6 1.6569649907e+05  -1.15e-04  4.12e-02   -1.488370e-06   3.362891e+00
+
+After 6 iterations the fit converged.
+final sum of squares of residuals : 165696
+rel. change during last iteration : -1.15119e-09
+
+degrees of freedom    (FIT_NDF)                        : 100871
+rms of residuals      (FIT_STDFIT) = sqrt(WSSR/ndf)    : 1.28166
+variance of residuals (reduced chisquare) = WSSR/ndf   : 1.64266
+
+Final set of parameters            Asymptotic Standard Error
+=======================            ==========================
+m               = -1.48837e-06     +/- 1.386e-07    (9.311%)
+b               = 3.36289          +/- 0.008071     (0.24%)
+
+correlation matrix of the fit parameters:
+                m      b      
+m               1.000 
+b              -0.866  1.000 
