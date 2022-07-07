@@ -28,8 +28,7 @@ Stream |  Min Seq | Max Seq | Purged | Collected | Percent Collected |
 
 
 ## Config
-<code style="white-space:pre;">
-
+```
 <system>
   log_level debug
 </system>
@@ -83,4 +82,4 @@ Stream |  Min Seq | Max Seq | Purged | Collected | Percent Collected |
 	</server>
 </match>
 
-</code>
+```
