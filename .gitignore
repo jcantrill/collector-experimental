@@ -1,0 +1,7 @@
+**/collector.logs
+**/loader-*.log
+**/http.logs
+**/*-loss.data
+**/cpu.data
+**/mem.data
+**/fit.log
