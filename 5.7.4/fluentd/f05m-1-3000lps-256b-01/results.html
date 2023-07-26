@@ -1,0 +1,437 @@
+
+<html>
+<div>
+  <div><b>Options</b><div>
+  <div>Image: quay.io/openshift-logging/fluentd:5.7</div>
+  <div>Total Log Stressors: 1</div>
+  <div>Lines Per Second: 3000</div>
+  <div>Run Duration: 05m</div>
+  <div>Payload Source: synthetic</div>
+</div>
+<div>
+  Latency of logs collected based on the time the log was generated and ingested
+</div>
+<table border="1">
+  <tr>
+    <th>Total</th>
+    <th>Size</th>
+    <th>Elapsed</th>
+    <th>Mean</th>
+    <th>Min</th>
+    <th>Max</th>
+    <th>Median</th>
+  </tr>
+  <tr>
+    <th>Msg</th>
+    <th></th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+  </tr>
+  <tr>
+   <td>918409</td>
+   <td>256</td>
+   <td>5m0s</td>
+   <td>2.315</td>
+   <td>0.151</td>
+   <td>10.032</td>
+   <td>1.199</td>
+  </tr>
+</table>
+  <div>
+    <img src="cpu.png">
+  </div>
+  <div>
+    <img src="mem.png">
+  </div>
+  <div>
+    <img src="latency.png">
+  </div>
+  <div>
+    <img src="loss.png">
+  </div>
+  <div>
+	<table border="1">
+	  <tr>
+		<th>Stream</th>
+		<th>Min Seq</th>
+		<th>Max Seq</th>
+		<th>Purged</th>
+		<th>Collected</th>
+		<th>Percent Collected</th>
+	  </tr>
+	  <tr>
+      <tr><td>functional.0.0000000000000000BE32DA548C236B15</td><td>0</td><td>918408</td><td>0</td><td>918409</td><td>100.0%</td><tr>
+    </table>
+  </div>
+  <div>
+    <code style="display:block;white-space:pre-wrap">
+    ## CLO GENERATED CONFIGURATION ###
+# This file is a copy of the fluentd configuration entrypoint
+# which should normally be supplied in a configmap.
+
+&lt;system&gt;
+  log_level &#34;#{ENV[&#39;LOG_LEVEL&#39;] || &#39;warn&#39;}&#34;
+&lt;/system&gt;
+
+# Prometheus Monitoring
+&lt;source&gt;
+  @type prometheus
+  bind &#34;#{ENV[&#39;PROM_BIND_IP&#39;]}&#34;
+  &lt;transport tls&gt;
+    cert_path /etc/collector/metrics/tls.crt
+    private_key_path /etc/collector/metrics/tls.key
+    min_version TLS1_2
+    max_version TLS1_3
+    ciphers TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+  &lt;/transport&gt;
+&lt;/source&gt;
+
+&lt;source&gt;
+  @type prometheus_monitor
+  &lt;labels&gt;
+    hostname ${hostname}
+  &lt;/labels&gt;
+&lt;/source&gt;
+
+# excluding prometheus_tail_monitor
+# since it leaks namespace/pod info
+# via file paths
+
+# tail_monitor plugin which publishes log_collected_bytes_total
+&lt;source&gt;
+  @type collected_tail_monitor
+  &lt;labels&gt;
+    hostname ${hostname}
+  &lt;/labels&gt;
+&lt;/source&gt;
+
+# This is considered experimental by the repo
+&lt;source&gt;
+  @type prometheus_output_monitor
+  &lt;labels&gt;
+    hostname ${hostname}
+  &lt;/labels&gt;
+&lt;/source&gt;
+
+# Logs from containers (including openshift containers)
+&lt;source&gt;
+  @type tail
+  @id container-input
+  path &#34;/var/log/pods/testhack-dtvnwowk_*/loader-*/*.log&#34;
+  exclude_path [&#34;/var/log/pods/testhack-dtvnwowk_collector-*/*/*.log&#34;, &#34;/var/log/pods/testhack-dtvnwowk_elasticsearch-*/*/*.log&#34;, &#34;/var/log/pods/testhack-dtvnwowk_kibana-*/*/*.log&#34;, &#34;/var/log/pods/testhack-dtvnwowk_*/loki*/*.log&#34;, &#34;/var/log/pods/testhack-dtvnwowk_*/gateway/*.log&#34;, &#34;/var/log/pods/testhack-dtvnwowk_*/opa/*.log&#34;, &#34;/var/log/pods/*/*/*.gz&#34;, &#34;/var/log/pods/*/*/*.tmp&#34;]
+  pos_file &#34;/var/lib/fluentd/pos/es-containers.log.pos&#34;
+  follow_inodes true
+  refresh_interval 5
+  rotate_wait 5
+  tag kubernetes.*
+  read_from_head &#34;true&#34;
+  skip_refresh_on_startup true
+  @label @CONCAT
+  &lt;parse&gt;
+    @type regexp
+    expression /^(?&lt;@timestamp&gt;[^\s]+) (?&lt;stream&gt;stdout|stderr) (?&lt;logtag&gt;[F|P]) (?&lt;message&gt;.*)$/
+    time_key &#39;@timestamp&#39;
+    keep_time_key true
+  &lt;/parse&gt;
+&lt;/source&gt;
+
+# Concat log lines of container logs, and send to INGRESS pipeline
+&lt;label @CONCAT&gt;
+  &lt;filter kubernetes.**&gt;
+    @type concat
+    key message
+    partial_key logtag
+    partial_value P
+    separator &#39;&#39;
+  &lt;/filter&gt;
+
+  &lt;match kubernetes.**&gt;
+    @type relabel
+    @label @INGRESS
+  &lt;/match&gt;
+&lt;/label&gt;
+
+# Ingress pipeline
+&lt;label @INGRESS&gt;
+  # Filter out PRIORITY from journal logs
+  &lt;filter journal&gt;
+    @type grep
+    &lt;exclude&gt;
+      key PRIORITY
+      pattern ^7$
+    &lt;/exclude&gt;
+  &lt;/filter&gt;
+
+  # Process OVN logs
+  &lt;filter ovn-audit.log**&gt;
+    @type record_modifier
+    &lt;record&gt;
+      @timestamp ${DateTime.parse(record[&#39;message&#39;].split(&#39;|&#39;)[0]).rfc3339(6)}
+      level ${record[&#39;message&#39;].split(&#39;|&#39;)[3].downcase}
+    &lt;/record&gt;
+  &lt;/filter&gt;
+
+  # Process Kube and OpenShift Audit logs
+  &lt;filter k8s-audit.log openshift-audit.log&gt;
+    @type record_modifier
+    &lt;record&gt;
+      @timestamp ${record[&#39;requestReceivedTimestamp&#39;]}
+    &lt;/record&gt;
+  &lt;/filter&gt;
+
+  # Retag Journal logs to specific tags
+  &lt;match journal&gt;
+    @type rewrite_tag_filter
+    # skip to @INGRESS label section
+    @label @INGRESS
+
+    # see if this is a kibana container for special log handling
+    # looks like this:
+    # k8s_kibana.a67f366_logging-kibana-1-d90e3_logging_26c51a61-2835-11e6-ad29-fa163e4944d5_f0db49a2
+    # we filter these logs through the kibana_transform.conf filter
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_kibana\.
+      tag kubernetes.journal.container.kibana
+    &lt;/rule&gt;
+
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_[^_]+_logging-eventrouter-[^_]+_
+      tag kubernetes.journal.container._default_.kubernetes-event
+    &lt;/rule&gt;
+
+    # mark logs from default namespace for processing as k8s logs but stored as system logs
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_[^_]+_[^_]+_default_
+      tag kubernetes.journal.container._default_
+    &lt;/rule&gt;
+
+    # mark logs from kube-* namespaces for processing as k8s logs but stored as system logs
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_[^_]+_[^_]+_kube-(.+)_
+      tag kubernetes.journal.container._kube-$1_
+    &lt;/rule&gt;
+
+    # mark logs from openshift-* namespaces for processing as k8s logs but stored as system logs
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_[^_]+_[^_]+_openshift-(.+)_
+      tag kubernetes.journal.container._openshift-$1_
+    &lt;/rule&gt;
+
+    # mark logs from openshift namespace for processing as k8s logs but stored as system logs
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_[^_]+_[^_]+_openshift_
+      tag kubernetes.journal.container._openshift_
+    &lt;/rule&gt;
+
+    # mark fluentd container logs
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_.*fluentd
+      tag kubernetes.journal.container.fluentd
+    &lt;/rule&gt;
+
+    # this is a kubernetes container
+    &lt;rule&gt;
+      key CONTAINER_NAME
+      pattern ^k8s_
+      tag kubernetes.journal.container
+    &lt;/rule&gt;
+
+    # not kubernetes - assume a system log or system container log
+    &lt;rule&gt;
+      key _TRANSPORT
+      pattern .+
+      tag journal.system
+    &lt;/rule&gt;
+  &lt;/match&gt;
+
+  # Invoke kubernetes apiserver to get kubernetes metadata
+  &lt;filter kubernetes.**&gt;
+    @id kubernetes-metadata
+    @type kubernetes_metadata
+    kubernetes_url &#39;https://kubernetes.default.svc&#39;
+    annotation_match [&#34;^containerType\.logging\.openshift\.io\/.*$&#34;]
+    allow_orphans false
+    cache_size &#39;1000&#39;
+    ssl_partial_chain &#39;true&#39;
+  &lt;/filter&gt;
+
+  # Parse Json fields for container, journal and eventrouter logs
+  &lt;filter kubernetes.var.log.pods.**_eventrouter-**&gt;
+    @type parse_json_field
+    merge_json_log true
+    preserve_json_log true
+    json_fields &#39;message&#39;
+  &lt;/filter&gt;
+
+  # Fix level field in audit logs
+  &lt;filter k8s-audit.log**&gt;
+    @type record_modifier
+    &lt;record&gt;
+      k8s_audit_level ${record[&#39;level&#39;]}
+    &lt;/record&gt;
+  &lt;/filter&gt;
+
+  &lt;filter openshift-audit.log**&gt;
+    @type record_modifier
+    &lt;record&gt;
+      openshift_audit_level ${record[&#39;level&#39;]}
+    &lt;/record&gt;
+  &lt;/filter&gt;
+
+  # Viaq Data Model
+  &lt;filter **&gt;
+    @type viaq_data_model
+    enable_flatten_labels true
+    enable_prune_empty_fields false
+    default_keep_fields CEE,time,@timestamp,aushape,ci_job,collectd,docker,fedora-ci,file,foreman,geoip,hostname,ipaddr4,ipaddr6,kubernetes,level,message,namespace_name,namespace_uuid,offset,openstack,ovirt,pid,pipeline_metadata,rsyslog,service,systemd,tags,testcase,tlog,viaq_msg_id
+    keep_empty_fields &#39;message&#39;
+    rename_time true
+    pipeline_type &#39;collector&#39;
+    process_kubernetes_events false
+    &lt;level&gt;
+      name warn
+      match &#39;Warning|WARN|^W[0-9]+|level=warn|Value:warn|&#34;level&#34;:&#34;warn&#34;&#39;
+    &lt;/level&gt;
+    &lt;level&gt;
+      name info
+      match &#39;Info|INFO|^I[0-9]+|level=info|Value:info|&#34;level&#34;:&#34;info&#34;&#39;
+    &lt;/level&gt;
+    &lt;level&gt;
+      name error
+      match &#39;Error|ERROR|^E[0-9]+|level=error|Value:error|&#34;level&#34;:&#34;error&#34;&#39;
+    &lt;/level&gt;
+    &lt;level&gt;
+      name critical
+      match &#39;Critical|CRITICAL|^C[0-9]+|level=critical|Value:critical|&#34;level&#34;:&#34;critical&#34;&#39;
+    &lt;/level&gt;
+    &lt;level&gt;
+      name debug
+      match &#39;Debug|DEBUG|^D[0-9]+|level=debug|Value:debug|&#34;level&#34;:&#34;debug&#34;&#39;
+    &lt;/level&gt;
+    &lt;formatter&gt;
+      tag &#34;journal.system**&#34;
+      type sys_journal
+      remove_keys log,stream,MESSAGE,_SOURCE_REALTIME_TIMESTAMP,__REALTIME_TIMESTAMP,CONTAINER_ID,CONTAINER_ID_FULL,CONTAINER_NAME,PRIORITY,_BOOT_ID,_CAP_EFFECTIVE,_CMDLINE,_COMM,_EXE,_GID,_HOSTNAME,_MACHINE_ID,_PID,_SELINUX_CONTEXT,_SYSTEMD_CGROUP,_SYSTEMD_SLICE,_SYSTEMD_UNIT,_TRANSPORT,_UID,_AUDIT_LOGINUID,_AUDIT_SESSION,_SYSTEMD_OWNER_UID,_SYSTEMD_SESSION,_SYSTEMD_USER_UNIT,CODE_FILE,CODE_FUNCTION,CODE_LINE,ERRNO,MESSAGE_ID,RESULT,UNIT,_KERNEL_DEVICE,_KERNEL_SUBSYSTEM,_UDEV_SYSNAME,_UDEV_DEVNODE,_UDEV_DEVLINK,SYSLOG_FACILITY,SYSLOG_IDENTIFIER,SYSLOG_PID
+    &lt;/formatter&gt;
+    &lt;formatter&gt;
+      tag &#34;kubernetes.var.log.pods.**_eventrouter-** k8s-audit.log** openshift-audit.log** ovn-audit.log**&#34;
+      type k8s_json_file
+      remove_keys stream
+      process_kubernetes_events &#39;true&#39;
+    &lt;/formatter&gt;
+    &lt;formatter&gt;
+      tag &#34;kubernetes.var.log.pods**&#34;
+      type k8s_json_file
+      remove_keys stream
+    &lt;/formatter&gt;
+  &lt;/filter&gt;
+
+  # Generate elasticsearch id
+  &lt;filter **&gt;
+    @type elasticsearch_genid_ext
+    hash_id_key viaq_msg_id
+    alt_key kubernetes.event.metadata.uid
+    alt_tags &#39;kubernetes.var.log.pods.**_eventrouter-*.** kubernetes.journal.container._default_.kubernetes-event&#39;
+  &lt;/filter&gt;
+
+  # Discard Infrastructure logs
+  &lt;match kubernetes.var.log.pods.openshift_** kubernetes.var.log.pods.openshift-*_** kubernetes.var.log.pods.default_** kubernetes.var.log.pods.kube-*_** journal.** system.var.log**&gt;
+    @type null
+  &lt;/match&gt;
+
+  # Include Application logs
+  &lt;match kubernetes.**&gt;
+    @type relabel
+    @label @_APPLICATION
+  &lt;/match&gt;
+
+  # Discard Audit logs
+  &lt;match linux-audit.log** k8s-audit.log** openshift-audit.log** ovn-audit.log**&gt;
+    @type null
+  &lt;/match&gt;
+
+  # Send any remaining unmatched tags to stdout
+  &lt;match **&gt;
+    @type stdout
+  &lt;/match&gt;
+&lt;/label&gt;
+
+# Routing Application to pipelines
+&lt;label @_APPLICATION&gt;
+  &lt;filter **&gt;
+    @type record_modifier
+    &lt;record&gt;
+      log_type application
+    &lt;/record&gt;
+  &lt;/filter&gt;
+
+  &lt;match **&gt;
+    @type label_router
+    &lt;route&gt;
+      @label @FORWARD_PIPELINE
+      &lt;match&gt;
+        namespaces testhack-dtvnwowk
+      &lt;/match&gt;
+    &lt;/route&gt;
+  &lt;/match&gt;
+&lt;/label&gt;
+
+# Copying pipeline forward-pipeline to outputs
+&lt;label @FORWARD_PIPELINE&gt;
+  &lt;match **&gt;
+    @type relabel
+    @label @HTTP
+  &lt;/match&gt;
+&lt;/label&gt;
+
+# Ship logs to specific outputs
+&lt;label @HTTP&gt;
+  #dedot namespace_labels and rebuild message field if present
+  &lt;filter **&gt;
+    @type record_modifier
+    &lt;record&gt;
+      _dummy_ ${if m=record.dig(&#34;kubernetes&#34;,&#34;namespace_labels&#34;);record[&#34;kubernetes&#34;][&#34;namespace_labels&#34;]={}.tap{|n|m.each{|k,v|n[k.gsub(/[.\/]/,&#39;_&#39;)]=v}};end}
+      _dummy2_ ${if m=record.dig(&#34;kubernetes&#34;,&#34;labels&#34;);record[&#34;kubernetes&#34;][&#34;labels&#34;]={}.tap{|n|m.each{|k,v|n[k.gsub(/[.\/]/,&#39;_&#39;)]=v}};end}
+      _dummy3_ ${if m=record.dig(&#34;kubernetes&#34;,&#34;flat_labels&#34;);record[&#34;kubernetes&#34;][&#34;flat_labels&#34;]=[].tap{|n|m.each_with_index{|s, i|n[i] = s.gsub(/[.\/]/,&#39;_&#39;)}};end}
+    &lt;/record&gt;
+    remove_keys _dummy_, _dummy2_, _dummy3_
+  &lt;/filter&gt;
+
+  &lt;match **&gt;
+    @type http
+    endpoint http://localhost:8090
+    http_method post
+    content_type application/x-ndjson
+    headers {&#34;k1&#34;:&#34;v1&#34;}
+
+    &lt;buffer&gt;
+      @type file
+      path &#39;/var/lib/fluentd/http&#39;
+      flush_mode interval
+      flush_interval 1s
+      flush_thread_count 2
+      retry_type exponential_backoff
+      retry_wait 1s
+      retry_max_interval 60s
+      retry_timeout 60m
+      queued_chunks_limit_size &#34;#{ENV[&#39;BUFFER_QUEUE_LIMIT&#39;] || &#39;32&#39;}&#34;
+      total_limit_size &#34;#{ENV[&#39;TOTAL_LIMIT_SIZE_PER_BUFFER&#39;] || &#39;8589934592&#39;}&#34;
+      chunk_limit_size &#34;#{ENV[&#39;BUFFER_SIZE_LIMIT&#39;] || &#39;8m&#39;}&#34;
+      overflow_action block
+      disable_chunk_backup true
+    &lt;/buffer&gt;
+  &lt;/match&gt;
+&lt;/label&gt;
+	</code>
+  </div>
+</html>
