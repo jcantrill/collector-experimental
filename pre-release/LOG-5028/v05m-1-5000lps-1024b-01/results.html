@@ -1,0 +1,220 @@
+
+<html>
+<div>
+  <div><b>Options</b><div>
+  <div>Image: quay.io/openshift-logging/vector:5.9</div>
+  <div>Total Log Stressors: 1</div>
+  <div>Lines Per Second: 5000</div>
+  <div>Run Duration: 5m</div>
+  <div>Payload Source: synthetic</div>
+</div>
+<div>
+  Latency of logs collected based on the time the log was generated and ingested
+</div>
+<table border="1">
+  <tr>
+    <th>Total</th>
+    <th>Size</th>
+    <th>Elapsed</th>
+    <th>Mean</th>
+    <th>Min</th>
+    <th>Max</th>
+    <th>Median</th>
+  </tr>
+  <tr>
+    <th>Msg</th>
+    <th></th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+  </tr>
+  <tr>
+   <td>619037</td>
+   <td>1024</td>
+   <td>5m0s</td>
+   <td>4.659</td>
+   <td>0.215</td>
+   <td>17.243</td>
+   <td>2.033</td>
+  </tr>
+</table>
+  <div>
+    <img src="cpu.png">
+  </div>
+  <div>
+    <img src="mem.png">
+  </div>
+  <div>
+    <img src="latency.png">
+  </div>
+  <div>
+    <img src="loss.png">
+  </div>
+  <div>
+	<table border="1">
+	  <tr>
+		<th>Stream</th>
+		<th>Min Seq</th>
+		<th>Max Seq</th>
+		<th>Purged</th>
+		<th>Collected</th>
+		<th>Percent Collected</th>
+	  </tr>
+	  <tr>
+      <tr><td>loader-0</td><td>0</td><td>1332598</td><td>0</td><td>619037</td><td>46.5%</td><tr>
+    </table>
+  </div>
+  <div>
+    <code style="display:block;white-space:pre-wrap">
+    expire_metrics_secs = 60
+
+data_dir = &#34;/var/lib/vector/testhack-e74i6ngt/instance&#34;
+
+
+[api]
+enabled = true
+
+[sources.internal_metrics]
+type = &#34;internal_metrics&#34;
+
+# Logs from containers (including openshift containers)
+[sources.input_benchmark_container]
+type = &#34;kubernetes_logs&#34;
+max_read_bytes = 3145728
+glob_minimum_cooldown_ms = 15000
+auto_partial_merge = true
+include_paths_glob_patterns = [&#34;/var/log/pods/testhack-e74i6ngt_*/*/*.log&#34;]
+pod_annotation_fields.pod_labels = &#34;kubernetes.labels&#34;
+pod_annotation_fields.pod_namespace = &#34;kubernetes.namespace_name&#34;
+pod_annotation_fields.pod_annotations = &#34;kubernetes.annotations&#34;
+pod_annotation_fields.pod_uid = &#34;kubernetes.pod_id&#34;
+pod_annotation_fields.pod_node_name = &#34;hostname&#34;
+namespace_annotation_fields.namespace_uid = &#34;kubernetes.namespace_id&#34;
+rotate_wait_ms = 5000
+
+[transforms.input_benchmark_container_viaq]
+type = &#34;remap&#34;
+inputs = [&#34;input_benchmark_container&#34;]
+source = &#39;&#39;&#39;
+  .openshift.cluster_id = &#34;${OPENSHIFT_CLUSTER_ID:-}&#34;
+  if !exists(.level) {
+    .level = &#34;default&#34;
+    if match!(.message, r&#39;Warning|WARN|^W[0-9]+|level=warn|Value:warn|&#34;level&#34;:&#34;warn&#34;|&lt;warn&gt;&#39;) {
+      .level = &#34;warn&#34;
+    } else if match!(.message, r&#39;Error|ERROR|^E[0-9]+|level=error|Value:error|&#34;level&#34;:&#34;error&#34;|&lt;error&gt;&#39;) {
+      .level = &#34;error&#34;
+    } else if match!(.message, r&#39;Critical|CRITICAL|^C[0-9]+|level=critical|Value:critical|&#34;level&#34;:&#34;critical&#34;|&lt;critical&gt;&#39;) {
+      .level = &#34;critical&#34;
+    } else if match!(.message, r&#39;Debug|DEBUG|^D[0-9]+|level=debug|Value:debug|&#34;level&#34;:&#34;debug&#34;|&lt;debug&gt;&#39;) {
+      .level = &#34;debug&#34;
+    } else if match!(.message, r&#39;Notice|NOTICE|^N[0-9]+|level=notice|Value:notice|&#34;level&#34;:&#34;notice&#34;|&lt;notice&gt;&#39;) {
+      .level = &#34;notice&#34;
+    } else if match!(.message, r&#39;Alert|ALERT|^A[0-9]+|level=alert|Value:alert|&#34;level&#34;:&#34;alert&#34;|&lt;alert&gt;&#39;) {
+      .level = &#34;alert&#34;
+    } else if match!(.message, r&#39;Emergency|EMERGENCY|^EM[0-9]+|level=emergency|Value:emergency|&#34;level&#34;:&#34;emergency&#34;|&lt;emergency&gt;&#39;) {
+      .level = &#34;emergency&#34;
+    } else if match!(.message, r&#39;(?i)\b(?:info)\b|^I[0-9]+|level=info|Value:info|&#34;level&#34;:&#34;info&#34;|&lt;info&gt;&#39;) {
+      .level = &#34;info&#34;
+  	}
+  }
+  pod_name = string!(.kubernetes.pod_name)
+  if starts_with(pod_name, &#34;eventrouter-&#34;) {
+    parsed, err = parse_json(.message)
+    if err != null {
+      log(&#34;Unable to process EventRouter log: &#34; + err, level: &#34;info&#34;)
+    } else {
+      ., err = merge(.,parsed)
+      if err == null &amp;&amp; exists(.event) &amp;&amp; is_object(.event) {
+          if exists(.verb) {
+            .event.verb = .verb
+            del(.verb)
+          }
+          .kubernetes.event = del(.event)
+          .message = del(.kubernetes.event.message)
+          set!(., [&#34;@timestamp&#34;], .kubernetes.event.metadata.creationTimestamp)
+          del(.kubernetes.event.metadata.creationTimestamp)
+  		. = compact(., nullish: true)
+      } else {
+        log(&#34;Unable to merge EventRouter log message into record: &#34; + err, level: &#34;info&#34;)
+      }
+    }
+  }
+  del(.source_type)
+  del(.stream)
+  del(.kubernetes.pod_ips)
+  del(.kubernetes.node_labels)
+  del(.timestamp_end)
+  ts = del(.timestamp); if !exists(.&#34;@timestamp&#34;) {.&#34;@timestamp&#34; = ts}
+&#39;&#39;&#39;
+
+# Set log_type
+[transforms.input_benchmark_viaq_logtype]
+type = &#34;remap&#34;
+inputs = [&#34;input_benchmark_container_viaq&#34;]
+source = &#39;&#39;&#39;
+  .log_type = &#34;application&#34;
+&#39;&#39;&#39;
+
+[transforms.output_http_normalize]
+type = &#34;remap&#34;
+inputs = [&#34;input_benchmark_viaq_logtype&#34;]
+source = &#39;&#39;&#39;
+  del(.file)
+&#39;&#39;&#39;
+
+[transforms.output_http_dedot]
+type = &#34;remap&#34;
+inputs = [&#34;output_http_normalize&#34;]
+source = &#39;&#39;&#39;
+  .openshift.sequence = to_unix_timestamp(now(), unit: &#34;nanoseconds&#34;)
+  if exists(.kubernetes.namespace_labels) {
+      for_each(object!(.kubernetes.namespace_labels)) -&gt; |key,value| { 
+        newkey = replace(key, r&#39;[\./]&#39;, &#34;_&#34;) 
+        .kubernetes.namespace_labels = set!(.kubernetes.namespace_labels,[newkey],value)
+        if newkey != key {
+          .kubernetes.namespace_labels = remove!(.kubernetes.namespace_labels,[key],true)
+        }
+      }
+  }
+  if exists(.kubernetes.labels) {
+      for_each(object!(.kubernetes.labels)) -&gt; |key,value| { 
+        newkey = replace(key, r&#39;[\./]&#39;, &#34;_&#34;) 
+        .kubernetes.labels = set!(.kubernetes.labels,[newkey],value)
+        if newkey != key {
+          .kubernetes.labels = remove!(.kubernetes.labels,[key],true)
+        }
+      }
+  }
+&#39;&#39;&#39;
+
+[sinks.output_http]
+type = &#34;http&#34;
+inputs = [&#34;output_http_dedot&#34;]
+uri = &#34;http://localhost:8090&#34;
+method = &#34;post&#34;
+
+[sinks.output_http.encoding]
+codec = &#34;json&#34;
+
+[sinks.output_http.buffer]
+when_full = &#34;drop_newest&#34;
+
+[sinks.output_http.request]
+retry_attempts = 17
+timeout_secs = 10
+headers = {&#34;k1&#34;=&#34;v1&#34;}
+
+
+[transforms.add_nodename_to_metric]
+type = &#34;remap&#34;
+inputs = [&#34;internal_metrics&#34;]
+source = &#39;&#39;&#39;
+.tags.hostname = get_env_var!(&#34;VECTOR_SELF_NODE_NAME&#34;)
+&#39;&#39;&#39;
+
+
+	</code>
+  </div>
+</html>
