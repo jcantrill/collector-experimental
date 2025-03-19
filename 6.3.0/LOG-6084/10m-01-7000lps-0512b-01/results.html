@@ -1,0 +1,277 @@
+
+<html>
+<div>
+  <div><b>Options</b><div>
+  <div>Image: quay.io/openshift-logging/vector:v0.37.1</div>
+  <div>Total Log Stressors: 1</div>
+  <div>Lines Per Second: 7000</div>
+  <div>Run Duration: 10m</div>
+  <div>Payload Source: synthetic</div>
+</div>
+<div>
+  Latency of logs collected based on the time the log was generated and ingested
+</div>
+<table border="1">
+  <tr>
+    <th>Total</th>
+    <th>Size</th>
+    <th>Elapsed</th>
+    <th>Mean</th>
+    <th>Min</th>
+    <th>Max</th>
+    <th>Median</th>
+  </tr>
+  <tr>
+    <th>Msg</th>
+    <th></th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+    <th>(s)</th>
+  </tr>
+  <tr>
+   <td>4248854</td>
+   <td>512</td>
+   <td>10m0s</td>
+   <td>4.411</td>
+   <td>0.176</td>
+   <td>17.521</td>
+   <td>2.629</td>
+  </tr>
+</table>
+  <div>
+    <img src="cpu.png">
+  </div>
+  <br/>
+  <br/>
+  <div>
+    <img src="mem.png">
+  </div>
+  <br/>
+  <br/>
+  <div>
+    <img src="latency.png">
+  </div>
+  <br/>
+  <br/>
+  <div>
+    <img src="loss.png">
+  </div>
+  <br/>
+  <br/>
+  <div>
+	<table border="1">
+	  <tr>
+		<th>Stream</th>
+		<th>Min Seq</th>
+		<th>Max Seq</th>
+		<th>Purged</th>
+		<th>Collected</th>
+		<th>Percent Collected</th>
+	  </tr>
+	  <tr>
+      <tr><td>loader-0</td><td>0</td><td>4248853</td><td>0</td><td>4248854</td><td>100.0%</td><tr>
+    </table>
+  </div>
+  <div>
+    <code style="display:block;white-space:pre-wrap">
+    expire_metrics_secs = 60
+data_dir = &#34;/var/lib/vector/testhack-dnfw5pwj/functional&#34;
+
+[api]
+enabled = true
+
+# Load sensitive data from files
+[secret.kubernetes_secret]
+type = &#34;file&#34;
+base_path = &#34;/var/run/ocp-collector/secrets&#34;
+
+[sources.internal_metrics]
+type = &#34;internal_metrics&#34;
+
+# Logs from containers (including openshift containers)
+[sources.input_benchmark_container]
+type = &#34;kubernetes_logs&#34;
+max_read_bytes = 3145728
+glob_minimum_cooldown_ms = 15000
+auto_partial_merge = true
+include_paths_glob_patterns = [&#34;/var/log/pods/testhack-dnfw5pwj_*/*/*.log&#34;]
+exclude_paths_glob_patterns = [&#34;/var/log/pods/*/*/*.gz&#34;, &#34;/var/log/pods/*/*/*.log.*&#34;, &#34;/var/log/pods/*/*/*.tmp&#34;, &#34;/var/log/pods/*/collector/*.log&#34;, &#34;/var/log/pods/*/http/*.log&#34;, &#34;/var/log/pods/default_*/*/*.log&#34;, &#34;/var/log/pods/kube*_*/*/*.log&#34;, &#34;/var/log/pods/openshift*_*/*/*.log&#34;]
+pod_annotation_fields.pod_labels = &#34;kubernetes.labels&#34;
+pod_annotation_fields.pod_namespace = &#34;kubernetes.namespace_name&#34;
+pod_annotation_fields.pod_annotations = &#34;kubernetes.annotations&#34;
+pod_annotation_fields.pod_uid = &#34;kubernetes.pod_id&#34;
+pod_annotation_fields.pod_node_name = &#34;hostname&#34;
+namespace_annotation_fields.namespace_uid = &#34;kubernetes.namespace_id&#34;
+rotate_wait_secs = 5
+
+[transforms.input_benchmark_container_meta]
+type = &#34;remap&#34;
+inputs = [&#34;input_benchmark_container&#34;]
+source = &#39;&#39;&#39;
+  . = {&#34;_internal&#34;: .}
+  ._internal.log_source = &#34;container&#34;
+    # If namespace is infra, label log_type as infra
+    if match_any(string!(._internal.kubernetes.namespace_name), [r&#39;^default$&#39;, r&#39;^openshift(-.+)?$&#39;, r&#39;^kube(-.+)?$&#39;]) {
+        ._internal.log_type = &#34;infrastructure&#34;
+    } else {
+        ._internal.log_type = &#34;application&#34;
+    }
+  ._internal.hostname = get_env_var(&#34;VECTOR_SELF_NODE_NAME&#34;) ?? &#34;&#34;
+  ._internal.openshift = { &#34;cluster_id&#34;: &#34;${OPENSHIFT_CLUSTER_ID:-}&#34;}
+  if !exists(._internal.level) {
+    level = &#34;default&#34;
+    message = ._internal.message
+    # Match on well known structured patterns
+    # Order: emergency, alert, critical, error, warn, notice, info, debug, trace
+    if match!(message, r&#39;^EM[0-9]+|level=emergency|Value:emergency|&#34;level&#34;:&#34;emergency&#34;&#39;) {
+      level = &#34;emergency&#34;
+    } else if match!(message, r&#39;^A[0-9]+|level=alert|Value:alert|&#34;level&#34;:&#34;alert&#34;&#39;) {
+      level = &#34;alert&#34;
+    } else if match!(message, r&#39;^C[0-9]+|level=critical|Value:critical|&#34;level&#34;:&#34;critical&#34;&#39;) {
+      level = &#34;critical&#34;
+    } else if match!(message, r&#39;^E[0-9]+|level=error|Value:error|&#34;level&#34;:&#34;error&#34;&#39;) {
+      level = &#34;error&#34;
+    } else if match!(message, r&#39;^W[0-9]+|level=warn|Value:warn|&#34;level&#34;:&#34;warn&#34;&#39;) {
+      level = &#34;warn&#34;
+    } else if match!(message, r&#39;^N[0-9]+|level=notice|Value:notice|&#34;level&#34;:&#34;notice&#34;&#39;) {
+      level = &#34;notice&#34;
+    } else if match!(message, r&#39;^I[0-9]+|level=info|Value:info|&#34;level&#34;:&#34;info&#34;&#39;) {
+      level = &#34;info&#34;
+    } else if match!(message, r&#39;^D[0-9]+|level=debug|Value:debug|&#34;level&#34;:&#34;debug&#34;&#39;) {
+      level = &#34;debug&#34;
+    } else if match!(message, r&#39;^T[0-9]+|level=trace|Value:trace|&#34;level&#34;:&#34;trace&#34;&#39;) {
+      level = &#34;trace&#34;
+    }
+    # Match on unstructured keywords in same order
+    if level == &#34;default&#34; {
+      if match!(message, r&#39;Emergency|EMERGENCY|&lt;emergency&gt;&#39;) {
+        level = &#34;emergency&#34;
+      } else if match!(message, r&#39;Alert|ALERT|&lt;alert&gt;&#39;) {
+        level = &#34;alert&#34;
+      } else if match!(message, r&#39;Critical|CRITICAL|&lt;critical&gt;&#39;) {
+        level = &#34;critical&#34;
+      } else if match!(message, r&#39;Error|ERROR|&lt;error&gt;&#39;) {
+        level = &#34;error&#34;
+      } else if match!(message, r&#39;Warning|WARN|&lt;warn&gt;&#39;) {
+        level = &#34;warn&#34;
+      } else if match!(message, r&#39;Notice|NOTICE|&lt;notice&gt;&#39;) {
+        level = &#34;notice&#34;
+      } else if match!(message, r&#39;(?i)\b(?:info)\b|&lt;info&gt;&#39;) {
+        level = &#34;info&#34;
+      } else if match!(message, r&#39;Debug|DEBUG|&lt;debug&gt;&#39;) {
+        level = &#34;debug&#34;
+      } else if match!(message, r&#39;Trace|TRACE|&lt;trace&gt;&#39;) {
+        level = &#34;trace&#34;
+      }
+    }
+    ._internal.level = level
+  }
+&#39;&#39;&#39;
+
+[transforms.pipeline_forward_pipeline_viaq_0]
+type = &#34;remap&#34;
+inputs = [&#34;input_benchmark_container_meta&#34;]
+source = &#39;&#39;&#39;
+  if ._internal.log_type != &#34;receiver&#34; { ._internal.openshift.sequence = to_unix_timestamp(now(), unit: &#34;nanoseconds&#34;)}
+   if exists(._internal.hostname) { .hostname = ._internal.hostname }
+  .log_type = ._internal.log_type
+  .log_source = ._internal.log_source
+  if exists(._internal.openshift) {.openshift = ._internal.openshift}
+  if exists(._internal.dedot_openshift_labels) {.openshift.labels = del(._internal.dedot_openshift_labels) }
+  if .log_source == &#34;container&#34; {
+    if exists(._internal.kubernetes.pod_name) &amp;&amp; starts_with(string!(._internal.kubernetes.pod_name), &#34;eventrouter-&#34;) {
+    parsed, err = parse_json(._internal.message)
+    if err != null {
+      log(&#34;Unable to process EventRouter log: &#34; + err, level: &#34;info&#34;)
+    } else {
+      ._internal.event = parsed
+      if exists(._internal.event.event) &amp;&amp; is_object(._internal.event.event) {
+          ._internal.kubernetes.event = del(._internal.event.event)
+  		._internal.kubernetes.event.verb = ._internal.event.verb
+          ._internal.message = del(._internal.kubernetes.event.message)
+          ._internal.&#34;@timestamp&#34; = .kubernetes.event.metadata.creationTimestamp
+      } else {
+        log(&#34;Unable to merge EventRouter log message into record: &#34; + err, level: &#34;info&#34;)
+      }
+    }
+  }
+  if ._internal.log_source == &#34;container&#34; {
+    if exists(._internal.kubernetes.namespace_labels) {
+      ._internal.dedot_namespace_labels = {}
+      for_each(object!(._internal.kubernetes.namespace_labels)) -&gt; |key,value| { 
+        newkey = replace(key, r&#39;[\./]&#39;, &#34;_&#34;) 
+        ._internal.dedot_namespace_labels = set!(._internal.dedot_namespace_labels,[newkey],value)
+      }
+    }
+    if exists(._internal.kubernetes.labels) {
+      ._internal.dedot_labels = {}
+      for_each(object!(._internal.kubernetes.labels)) -&gt; |key,value| { 
+        newkey = replace(key, r&#39;[\./]&#39;, &#34;_&#34;) 
+        ._internal.dedot_labels = set!(._internal.dedot_labels,[newkey],value)
+      }
+    }
+  }
+  if exists(._internal.openshift.labels) {for_each(object!(._internal.openshift.labels)) -&gt; |key,value| {
+    ._internal.dedot_openshift_labels = {}
+    newkey = replace(key, r&#39;[\./]&#39;, &#34;_&#34;) 
+    ._internal.dedot_openshift_labels = set!(._internal.dedot_openshift_labels,[newkey],value)
+  }}
+  .kubernetes = ._internal.kubernetes
+  .kubernetes.container_iostream = ._internal.stream
+  if exists(._internal.dedot_labels) {.kubernetes.labels = del(._internal.dedot_labels) }
+  if exists(._internal.dedot_namespace_labels) {.kubernetes.namespace_labels = del(._internal.dedot_namespace_labels) }
+  del(.kubernetes.node_labels)
+  del(.kubernetes.container_image_id)
+  del(.kubernetes.pod_ips)
+  if !exists(._internal.structured) {
+    .message = ._internal.message
+  }
+  }
+  if ._internal.log_type == &#34;audit&#34; &amp;&amp; exists(._internal.structured) {. = merge!(.,._internal.structured) }
+  if ._internal.log_source == &#34;syslog&#34; &amp;&amp; exists(._internal.structured) {. = merge!(.,._internal.structured) }
+  if ._internal.log_source == &#34;container&#34; &amp;&amp; exists(._internal.structured) {.structured = ._internal.structured }
+  .timestamp = ._internal.timestamp
+  .&#34;@timestamp&#34; = ._internal.timestamp
+  if ._internal.log_type != &#34;audit&#34; &amp;&amp; exists(._internal.level) {
+    .level = ._internal.level
+  }
+&#39;&#39;&#39;
+
+[sinks.output_http]
+type = &#34;http&#34;
+inputs = [&#34;pipeline_forward_pipeline_viaq_0&#34;]
+uri = &#34;http://localhost:8090&#34;
+method = &#34;post&#34;
+
+[sinks.output_http.encoding]
+codec = &#34;json&#34;
+except_fields = [&#34;_internal&#34;]
+
+[sinks.output_http.tls]
+min_tls_version = &#34;VersionTLS12&#34;
+ciphersuites = &#34;TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,DHE-RSA-AES128-GCM-SHA256,DHE-RSA-AES256-GCM-SHA384&#34;
+
+[transforms.add_nodename_to_metric]
+type = &#34;remap&#34;
+inputs = [&#34;internal_metrics&#34;]
+source = &#39;&#39;&#39;
+.tags.hostname = get_env_var!(&#34;VECTOR_SELF_NODE_NAME&#34;)
+&#39;&#39;&#39;
+
+[sinks.prometheus_output]
+type = &#34;prometheus_exporter&#34;
+inputs = [&#34;add_nodename_to_metric&#34;]
+address = &#34;[::]:24231&#34;
+default_namespace = &#34;collector&#34;
+
+[sinks.prometheus_output.tls]
+enabled = true
+key_file = &#34;/etc/collector/metrics/tls.key&#34;
+crt_file = &#34;/etc/collector/metrics/tls.crt&#34;
+min_tls_version = &#34;VersionTLS12&#34;
+ciphersuites = &#34;TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,DHE-RSA-AES128-GCM-SHA256,DHE-RSA-AES256-GCM-SHA384&#34;
+	</code>
+  </div>
+</html>
